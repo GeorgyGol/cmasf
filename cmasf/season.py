@@ -132,7 +132,7 @@ class __SeasonWave():
         plp = row[-1] * (row[-self._period] / row[-self._period - 1])
         lp = plp * (row[-self._period + 1] / row[-self._period])
 
-        res=srv.as_matrix(np.diff(row, n=2, append=[plp, lp]))
+        res=srv.as_matrix(np.diff(row, n=2, append=[plp, lp]), period=self._period)
         res[:, -1] = 0
         return res
 
