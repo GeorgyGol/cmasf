@@ -292,7 +292,8 @@ def seasonal_decompose(row, period=12, gamma=2, static=0.5, model='additive', pr
     if 0 < gamma <= 1:
         trend, wave, out_row = x.seasX4(gamma)
         err = x.Err_X4(trend, wave)
-        return trend, wave, err, out_row
+        ret = DecomposeResult(row=out_row, trend=trend, wave=wave, std=err, alfa=gamma, steps=1)
+        return ret
 
     r = (3 - math.sqrt(5)) / 2
     A = 0
