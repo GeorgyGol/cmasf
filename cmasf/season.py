@@ -14,16 +14,18 @@
 
 __author__ = "G. Golyshev, V.Gubanov, V. Salnikov"
 __copyright__ = "CMASF 2020"
-__version__ = "0.0.1"
+__version__ = "0.0.2"
 __maintainer__ = "G. Golyshev"
 __email__ = "g.golyshev@forecast.ru"
 __status__ = "Production"
 
 import numpy as np
 
-import math
 from scipy import stats as st
 import cmasf.serv as srv
+from scipy.optimize import minimize_scalar
+import inspect
+import matplotlib.pyplot as plt
 
 class DecomposeResult():
     _row=[]
@@ -32,18 +34,22 @@ class DecomposeResult():
     _alfa=0
     _std=0
     _steps=0
+    _optimization='?'
+    _params=None
 
-    def __init__(self, row=[], wave=[], trend=[], alfa=0, std=0, steps=0):
+    def __init__(self, row=[], wave=[], trend=[], alfa=0, std=0, steps=0, opt_message='', params=None):
         self._row=row.copy()
         self._wave=wave.copy()
         self._trend=trend.copy()
         self._alfa=alfa
         self._std=std
         self._steps=steps
+        self._optimization=opt_message
+        self._params=params
 
     @property
     def nobs(self):
-        return len(self.row)
+        return len(self._row)
 
     @property
     def observed(self):
@@ -69,6 +75,62 @@ class DecomposeResult():
     def steps(self):
         return self._steps
 
+    @property
+    def params(self):
+        return self._params
+
+    @property
+    def optimisation_mess(self):
+        return 'optimisation: {}'.format(self._optimization)
+
+    def __str__(self):
+        return '''row lenght={len}
+alfa={alfa}
+{opt_mess}
+optimisations iteration={step}
+params={params}
+'''.format(len=self.nobs, alfa=self.weights, opt_mess=self.optimisation_mess, params=self.params, step=self.steps)
+
+    def plot(self, subplots=3, title=''):
+
+        if subplots==3:
+            fig, axes=plt.subplots(nrows=3, ncols=1, sharex=True)
+
+            axes[0].plot(self._row)
+            axes[0].set_ylabel('row', fontdict={'fontsize':10})
+
+            axes[1].plot(self._trend)
+            axes[1].set_ylabel('trend', fontdict={'fontsize': 10})
+
+            axes[2].plot(self._wave)
+            axes[2].set_ylabel('wave', fontdict={'fontsize': 10})
+
+            axes[2].set_xlabel('wave model={model}; gamma={gamma}; static={static}; row_corr={row_correction}'.format(**self._params),fontdict={'fontsize': 10})
+        elif subplots==2:
+            fig, axes = plt.subplots(nrows=2, ncols=1, sharex=True)
+
+            axes[0].plot(self._row)
+            axes[0].plot(self._trend)
+            axes[0].set_ylabel('row+trend', fontdict={'fontsize': 10})
+
+            axes[1].plot(self._wave)
+            axes[1].set_ylabel('wave', fontdict={'fontsize': 10})
+
+            axes[1].set_xlabel(
+                'wave model={model}; gamma={gamma}; static={static}; row_corr={row_correction}'.format(**self._params),fontdict={'fontsize': 10})
+        elif subplots==1:
+            fig, ax=plt.subplots()
+            ax.plot(self._row)
+            ax.plot(self._trend)
+            ax.plot(self._wave)
+            ax.set_xlabel(
+                'wave model={model}; gamma={gamma}; static={static}; row_corr={row_correction}'.format(**self._params), fontdict={'fontsize': 10})
+        else:
+            raise ValueError('plot not possible for {} subplots'.format(subplots))
+        # strT=['{k}={v}'.format(k=k, v=v) for k, v in self._params.items()]
+        fig.suptitle(title, fontsize=12)
+
+        plt.show()
 
 class __SeasonWave():
     _row=None
@@ -131,14 +193,20 @@ class __SeasonWave():
     def _calc_sec_diff(self, row):
         plp = row[-1] * (row[-self._period] / row[-self._period - 1])
         lp = plp * (row[-self._period + 1] / row[-self._period])
-
-        res=srv.as_matrix(np.diff(row, n=2, append=[plp, lp]), period=self._period)
+        np_ver=np.__version__.split('.')
+        if int(np_ver[0])<=1 and int(np_ver[1])<=11:
+            res=srv.as_matrix(np.diff(np.append(row, [plp, lp]), n=2), period=self._period)
+        else:
+            res = srv.as_matrix(np.diff(row, append=[plp, lp], n=2), period=self._period)
         res[:, -1] = 0
         return res
 
     def _norm_vect(self, cnt_periods, gamma):
-        return np.array([(1 - gamma) / (1 + gamma - gamma ** k - gamma ** (cnt_periods - k + 1)) for k in
+        try:
+            return np.array([(1 - gamma) / (1 + gamma - gamma ** k - gamma ** (cnt_periods - k + 1)) for k in
                          range(1, cnt_periods + 1)])
+        except ZeroDivisionError:
+            return np.ones(cnt_periods)
 
     def _weight_matrix(self, row, gamma):
         """правая часть уравнения по Губанову"""
@@ -283,6 +351,10 @@ def seasonal_decompose(row, period=12, gamma=2, static=0.5, model='additive', pr
 
         example: res = seasonal_decompose(row, period=12, gamma=2, static=0.1, model='add')
     """
+    frame = inspect.currentframe()
+    args, _, _, values = inspect.getargvalues(frame)
+    params={k:v for k, v in values.items() if k not in ['frame', 'row']}
+
     x=__SeasonWave(row.copy(), period=period, static=static, model=model)
     if row_correction:
         xmtr = x.as_matrix(fill_val=correction_fill_val)
@@ -292,58 +364,81 @@ def seasonal_decompose(row, period=12, gamma=2, static=0.5, model='additive', pr
     if 0 < gamma <= 1:
         trend, wave, out_row = x.seasX4(gamma)
         err = x.Err_X4(trend, wave)
-        ret = DecomposeResult(row=out_row, trend=trend, wave=wave, std=err, alfa=gamma, steps=1)
+        ret = DecomposeResult(row=out_row, trend=trend, wave=wave, std=err,
+                              steps=-1, alfa=gamma, opt_message='Manually set', params=params)
         return ret
 
-    r = (3 - math.sqrt(5)) / 2
-    A = 0
-    c = 1
-    k = 0
+    min_res=minimize_scalar(x.Variance, tol=precision, options={'maxiter':100}, bounds=(0, 1), method='bounded')
 
-    while k < 30:
-        B = A + r * (c - A)
-        d = c + r * (A - c)
-
-        err1 = x.Variance(d)
-        err2 = x.Variance(B)
-
-        if abs(1 - err1 / err2) < precision: break
-
-        if err1 < err2:
-            A = B
-        else:
-            c = A
-            A = d
-        k += 1
-
-    alfa = d if err1 < err2 else B
-
-    trend, wave, out_row = x.seasX4(alfa)
+    trend, wave, out_row = x.seasX4(min_res.x)
     err = x.Err_X4(trend, wave)
-    ret=DecomposeResult(row=out_row, trend=trend, wave=wave, std=err, alfa=alfa, steps=k)
+    ret=DecomposeResult(row=out_row, trend=trend, wave=wave, std=err, alfa=min_res.x,
+                        steps=min_res.nfev, opt_message=min_res.message, params=params)
+
     return ret
 
-# def test():
-#     # inp= np.array( (305.6, 296.6, 286.1, 303.4, 287.5, 293.4, 286.2, 292, 290, 285.8, 307.8, 302.1,
-#     #                 311, 301, 280.7, 311, 299.1, 307.7, 297.3, 299.4, 302.5, 299.9, 326.9, 313.7, 311.3, 311.4, 297.9,
-#     #                 328, 315.6, 323.5, 312, 321.3, 321.7, 322, 341.7, 331.2, 341.7, 340.2, 315.7, 353.1, 336.5, 347.7,
-#     #                 339.8, 346.5, 350.2, 342.5, 367.4, 357.5, 373.9, 362.3, 345.4, 376.6, 367.1, 371.6, 357.8, 366.1,
-#     #                 373.1, 366.1, 380.2, 375.7325, 386.6126) ) #np.around(np.random.random(24), 2)
-#
-#     inp = np.array((305.6, 396.6, 386.1, 303.4, 487.5, 293.4, 286.2, 292, 290, 285.8, 307.8, 302.1,
-#                      211, 301, 280.7, 311, 299.1, 307.7, 297.3, 299.4, 302.5, 299.9, 326.9, 313.7, 311.3, 311.4, 297.9,
-#                      328, 315.6, 323.5, 212, 321.3, 221.7, 322, 341.7, 331.2, 341.7, 340.2, 315.7, 353.1, 336.5, 347.7,
-#                      339.8, 346.5, 550.2, 342.5, 367.4, 357.5, 373.9, 362.3, 345.4, 376.6, 367.1, 371.6, 357.8, 366.1,
-#                      373.1, 366.1, 380.2, 375.7325, 386.6126) )  # np.around(np.random.random(24), 2)
-#
-#     np.set_printoptions(precision=3, suppress=True, linewidth =110)
-#     row = inp[:-2]
-#     trend, wave, err, out_row = seasonal_decompose(row.copy(), period=12, gamma=2, static=0, model='add',
-#                                                    correction_zlevel=1.1,
-#                                                    row_correction=True, correction_axis=1, correction_neiboors=3)
-#     pdf = pd.DataFrame({'row': row, 'wave': wave, 'trend': trend, 'corr_row':out_row})
-#
-#     return pdf
+def test():
+    import sqlalchemy as sa
+    import pandas as pd
+
+    # inp= np.array( (305.6, 296.6, 286.1, 303.4, 287.5, 293.4, 286.2, 292, 290, 285.8, 307.8, 302.1,
+    #                 311, 301, 280.7, 311, 299.1, 307.7, 297.3, 299.4, 302.5, 299.9, 326.9, 313.7, 311.3, 311.4, 297.9,
+    #                 328, 315.6, 323.5, 312, 321.3, 321.7, 322, 341.7, 331.2, 341.7, 340.2, 315.7, 353.1, 336.5, 347.7,
+    #                 339.8, 346.5, 350.2, 342.5, 367.4, 357.5, 373.9, 362.3, 345.4, 376.6, 367.1, 371.6, 357.8, 366.1,
+    #                 373.1, 366.1, 380.2, 375.7325, 386.6126) ) #np.around(np.random.random(24), 2)
+
+    inp = np.array((305.6, 396.6, 386.1, 303.4, 487.5, 293.4, 286.2, 292, 290, 285.8, 307.8, 302.1,
+                     211, 301, 280.7, 311, 299.1, 307.7, 297.3, 299.4, 302.5, 299.9, 326.9, 313.7, 311.3, 311.4, 297.9,
+                     328, 315.6, 323.5, 212, 321.3, 221.7, 322, 341.7, 331.2, 341.7, 340.2, 315.7, 353.1, 336.5, 347.7,
+                     339.8, 346.5, 550.2, 342.5, 367.4, 357.5, 373.9, 362.3, 345.4, 376.6, 367.1, 371.6, 357.8, 366.1,
+                     373.1, 366.1, 380.2, 375.7325, 386.6126) )  # np.around(np.random.random(24), 2)
+
+    np.set_printoptions(precision=3, suppress=True, linewidth =110)
+
+    row = inp[:-2]
+
+
+    codes=['Qr_S_Ind',
+    'Qr_S_Ind',
+    'Qr_I_build',
+    'Qr_X_Gdp',
+    'Ipc_P_Cpi',
+    'Qt_Mort_sup',
+    'Qt_H_Inc',
+    'Qr_H_Wavg',
+    'Qr_H_Incdsp',
+    'QT_D_M2new']
+
+    code2 = codes[5]
+
+    coni_q = sa.create_engine('sqlite+pysqlite:///{db_name}'.format(db_name='quar.sqlite3'))
+    strSQL='''select * from datas 
+    inner join headers on headers.code=datas.code 
+    where headers.code2="{code2}"'''.format(code2=code2)
+
+    p=pd.read_sql(strSQL, con=coni_q, index_col='date', parse_dates=True)
+
+    # res = seasonal_decompose(row.copy(), period=12, gamma=2, static=0, model='add',
+    #                                                correction_zlevel=1.1,
+    #                                                row_correction=True, correction_axis=1, correction_neiboors=3)
+
+    # pdf = pd.DataFrame({'row': row, 'wave': res.seasonal, 'trend': res.trend, 'corr_row': res.observed})
+    # pdf.plot.line()
+
+    res = seasonal_decompose(p['value'].values, period=12, gamma=2, static=0, model='add')
+
+    p['trend']=res.trend
+    p['pct'] = p['trend'].pct_change()
+    p['wave']=res.seasonal
+
+    print(res.steps)
+    ax=p[['value', 'trend', 'wave', 'pct']].plot.line(rot=90, fontsize=8, title=code2, secondary_y=['pct',])
+    ax.set_xlabel(
+                'wave model={model}; gamma={gamma}; static={static}; row_corr={row_correction}'.format(**res.params), fontdict={'fontsize': 10})
+
+    plt.tight_layout()
+    plt.show()
+    return p
 
 
 if __name__ == "__main__":
@@ -382,8 +477,6 @@ if __name__ == "__main__":
     # # print(xmtr)
     #
     # p=test()
-    #
-    # p.plot.line()
-    # plt.show()
+
 
     print('Hello from CMASF seasonal_decompose')
