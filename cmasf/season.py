@@ -271,6 +271,7 @@ class __SeasonWave():
     def Err_X4(self, trend, wave):
         return self.std_trend(trend)*(1-self._static) + self.std_wave(wave)*self._static
 
+
     def Variance(self, gamma):
         trend, wave, _ = self.seasX4(gamma)
         return self.Err_X4(trend, wave)
@@ -330,27 +331,27 @@ class __SeasonWave():
 
 def seasonal_decompose(row, period=12, gamma=2, static=0.5, model='additive', precision=0.001,
                        row_correction=False, correction_axis=0, correction_zlevel=2, correction_trimm=0.2,
-                       correction_fill_val=np.nan, correction_neiboors=2):
+                       correction_fill_val=np.nan, correction_neiboors=2, opt_method='bounded', opt_bounds=(0, 1)):
 
-    """Detachmentt of the seasonal components of the time series
-        params: row - source row - time series, 1D numpy.array
-                periods - points in one period
-                gamma - dynamic param for wave varians, if > 1 - function find optimal gamma itself
-                static - if =1 the wave will be static, if = 0 - wave will be dynamic, between 0 and 1 - partial static
-                model - 'additive' aor 'multiplicative', define wave model
-                precision -  precision for gamma calculation if gamma calculating itself
-                row_correction - if True make outliers row correction
-                correction_axis - find outliers and correct: 0 - by flat row, 1 - by inter-period
-                correction_zlevel - z-score level for outlier point
-                correction_trimm - exclude min-max pointer from find correction alg., in percent
-                correction_fill_val - fill row with this value for make matrix
-                correction_neiboors - correct ouliers by neiboors's mean, this param - count for used neiboors
-                pow_weight - power wight, more 1 - smoother trend
+    """Detachment of the seasonal components of the time series params:
+            row - source row - time series, 1D numpy.array
+            period - points in one period
+            gamma - dynamic param for wave varians, if > 1 - function find optimal gamma itself
+            static - if =1 the wave will be static, if = 0 - wave will be dynamic, between 0 and 1 - partial static
+            model - 'additive' aor 'multiplicative', define wave model
+            precision -  precision for gamma calculation if gamma calculating itself
+            row_correction - if True make outliers row correction
+            correction_axis - find outliers and correct: 0 - by flat row, 1 - by inter-period
+            correction_zlevel - z-score level for outlier point
+            correction_trimm - exclude min-max pointer from find correction alg., in percent
+            correction_fill_val - fill row with this value for make matrix
+            correction_neiboors - correct ouliers by neiboors's mean, this param - count for used neiboors
+            opt_bounds - see scipy.optimize.minimize_scalar, bounds
+            opt_method - see scipy.optimize.minimize_scalar, method
+    return: DecomposeResult
 
-        return: DecomposeResult
-
-        example: res = seasonal_decompose(row, period=12, gamma=2, static=0.1, model='add')
-    """
+    example: res = seasonal_decompose(row, period=12, gamma=2, static=0.1, model='add')
+        """
     frame = inspect.currentframe()
     args, _, _, values = inspect.getargvalues(frame)
     params={k:v for k, v in values.items() if k not in ['frame', 'row']}
@@ -368,13 +369,16 @@ def seasonal_decompose(row, period=12, gamma=2, static=0.5, model='additive', pr
                               steps=-1, alfa=gamma, opt_message='Manually set', params=params)
         return ret
 
-    min_res=minimize_scalar(x.Variance, tol=precision, options={'maxiter':100}, bounds=(0, 1), method='bounded')
+    min_res=minimize_scalar(x.Variance, tol=precision, options={'maxiter':100}, bounds=opt_bounds, method=opt_method)
 
     trend, wave, out_row = x.seasX4(min_res.x)
     err = x.Err_X4(trend, wave)
-    ret=DecomposeResult(row=out_row, trend=trend, wave=wave, std=err, alfa=min_res.x,
+    try:
+        ret=DecomposeResult(row=out_row, trend=trend, wave=wave, std=err, alfa=min_res.x,
                         steps=min_res.nfev, opt_message=min_res.message, params=params)
-
+    except:
+        ret = DecomposeResult(row=out_row, trend=trend, wave=wave, std=err, alfa=min_res.x,
+                              steps=min_res.nfev, opt_message=min_res.success, params=params)
     return ret
 
 def test():
@@ -398,7 +402,7 @@ def test():
     row = inp[:-2]
 
 
-    codes=['Qr_S_Ind',
+    codes=[
     'Qr_S_Ind',
     'Qr_I_build',
     'Qr_X_Gdp',
@@ -409,7 +413,7 @@ def test():
     'Qr_H_Incdsp',
     'QT_D_M2new']
 
-    code2 = codes[5]
+    code2 = codes[1]
 
     coni_q = sa.create_engine('sqlite+pysqlite:///{db_name}'.format(db_name='quar.sqlite3'))
     strSQL='''select * from datas 
@@ -425,13 +429,13 @@ def test():
     # pdf = pd.DataFrame({'row': row, 'wave': res.seasonal, 'trend': res.trend, 'corr_row': res.observed})
     # pdf.plot.line()
 
-    res = seasonal_decompose(p['value'].values, period=12, gamma=2, static=0, model='add')
+    res = seasonal_decompose(p['value'].values, period=12, gamma=2, static=1, model='mult')
 
     p['trend']=res.trend
     p['pct'] = p['trend'].pct_change()
     p['wave']=res.seasonal
 
-    print(res.steps)
+    print(res.steps, res.weights)
     ax=p[['value', 'trend', 'wave', 'pct']].plot.line(rot=90, fontsize=8, title=code2, secondary_y=['pct',])
     ax.set_xlabel(
                 'wave model={model}; gamma={gamma}; static={static}; row_corr={row_correction}'.format(**res.params), fontdict={'fontsize': 10})
@@ -476,7 +480,7 @@ if __name__ == "__main__":
     # # xmtr=x.as_matrix()
     # # print(xmtr)
     #
-    # p=test()
+    p=test()
 
 
     print('Hello from CMASF seasonal_decompose')
