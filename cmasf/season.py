@@ -14,7 +14,7 @@
 
 __author__ = "G. Golyshev, V.Gubanov, V. Salnikov"
 __copyright__ = "CMASF 2020"
-__version__ = "0.0.2"
+__version__ = "0.0.3"
 __maintainer__ = "G. Golyshev"
 __email__ = "g.golyshev@forecast.ru"
 __status__ = "Production"
@@ -70,38 +70,47 @@ class DecomposeResult():
 
     @property
     def nobs(self):
+        """numbers of points in the source row"""
         return len(self._row)
 
     @property
     def observed(self):
+        """return observed row. If in decompose function used row correction, observed return row with corrections"""
         return self._row
 
     @property
     def trend(self):
+        """return trend, after remove seasonl wave"""
         return self._trend
 
     @property
     def seasonal(self):
+        """return seasonal component, wave"""
         return self._wave
 
     @property
     def weights(self):
+        """return actual optimisation params, here - optimazed gamma"""
         return self._alfa
 
     @property
     def std(self):
+        """return final error of decompose"""
         return self._std
 
     @property
     def steps(self):
+        """return number of optimisation steps"""
         return self._steps
 
     @property
     def params(self):
+        """return dict with seasonla_decompose params (source)"""
         return self._params
 
     @property
     def optimisation_mess(self):
+        """return string with some optimisations info"""
         return 'optimisation: {}'.format(self._optimization)
 
     def __str__(self):
@@ -113,7 +122,12 @@ params={params}
 '''.format(len=self.nobs, alfa=self.weights, opt_mess=self.optimisation_mess, params=self.params, step=self.steps)
 
     def plot(self, subplots=3, title=''):
-
+        """plot wave, observed row and wave on one (all in one), two (row+trend, wave)
+        or three (each separated) graphs with row, wave and trend
+        params:
+        subplots : number of graphs
+        title : string print as plot title
+        """
         if subplots==3:
             fig, axes=plt.subplots(nrows=3, ncols=1, sharex=True)
 
@@ -503,5 +517,5 @@ if __name__ == "__main__":
     #
     p=test()
 
-
+    print(help(DecomposeResult))
     print('Hello from CMASF seasonal_decompose')
