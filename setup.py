@@ -5,7 +5,7 @@ setup(
     name='cmasf',
     version=cmasf.__version__,
     packages=['cmasf'],
-    url='',
+    url='http://www.forecast.ru',
     license='',
     author='G. Golyshev',
     install_requires=['pandas', 'sqlalchemy', 'numpy', 'scipy'],

@@ -28,6 +28,27 @@ import inspect
 import matplotlib.pyplot as plt
 
 class DecomposeResult():
+    """
+    A class used to represent a seasonal_decompose result
+
+    Attributes
+    ----------
+    nobs : numbers of points in the source row
+    observed : observed row. If in decompose function used row correction, observed return row with corrections
+    trend : return trend, after remove seasonl wave
+    seasonal : return seasonal component, wave
+    weights : return actual optimisation params, here - optimazed gamma
+    std : return final error of decompose
+    steps : return number of optimisation steps
+    params : return dict with seasonla_decompose params (source)
+    optimisation_mess : return string with some optimisations info
+
+    Methods
+    -------
+    __str__ : used for print all class attribs
+    plot(subplots=3, title='') : plot wave, observed row and wave on one (all in one), two (row+trend, wave)
+    or three (each separated) graphs with row, wave and trend
+    """
     _row=[]
     _wave=[]
     _trend=[]
